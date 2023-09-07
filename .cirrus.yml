@@ -1,0 +1,7 @@
+task:
+  arm_container:
+    image: sbtscala/scala-sbt:eclipse-temurin-jammy-17.0.5_8_1.9.4_3.3.0
+    cpu: 4
+    memory: 8G
+  name: Linux ARM
+  script: sbt epoll/test
