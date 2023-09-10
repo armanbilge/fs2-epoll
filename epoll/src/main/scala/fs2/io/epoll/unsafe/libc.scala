@@ -17,19 +17,47 @@
 package fs2.io.epoll
 package unsafe
 
-import jnr.ffi.{LibraryLoader, Platform, Pointer}
+import jnr.ffi.{LibraryLoader, Platform, Pointer, Runtime, LastError}
+
+sealed trait libcFFIInterface {
+  def epoll_create1(flags: Int): Int
+
+  def epoll_ctl(epfd: Int, op: Int, fd: Int, event: Pointer): Int
+
+  def epoll_wait(epfd: Int, events: Pointer, maxevents: Int, timeout: Int): Int
+
+  def errno(): Int
+
+  def strerror(errnum: Int): String
+
+  def close(fd: Int): Int
+}
 
 private[epoll] object libc {
 
-  trait jnrLibCInterface {
-    def epoll_create1(flags: Int): Int
+  object jnr extends libcFFIInterface {
+    private trait jnrLibcFFIInterface {
+      def epoll_create1(flags: Int): Int
+      def epoll_ctl(epfd: Int, op: Int, fd: Int, event: Pointer): Int
+      def epoll_wait(epfd: Int, events: Pointer, maxevents: Int, timeout: Int): Int
+      def errno(): Int
+      def strerror(errnum: Int): String
+      def close(fd: Int): Int
+    }
 
-    def epoll_ctl(epfd: Int, op: Int, fd: Int, event: Pointer): Int
+    private lazy val libc = LibraryLoader
+      .create(classOf[jnrLibcFFIInterface])
+      .load(Platform.getNativePlatform().getStandardCLibraryName())
 
-    def epoll_wait(epfd: Int, events: Pointer, maxevents: Int, timeout: Int): Int
+    private lazy val runtime = Runtime.getSystemRuntime
+
+    def epoll_create1(flags: Int): Int = libc.epoll_create1(flags)
+    def epoll_ctl(epfd: Int, op: Int, fd: Int, event: Pointer): Int =
+      libc.epoll_ctl(epfd, op, fd, event)
+    def epoll_wait(epfd: Int, events: Pointer, maxevents: Int, timeout: Int): Int =
+      libc.epoll_wait(epfd, events, maxevents, timeout)
+    def errno(): Int = LastError.getLastError(runtime)
+    def strerror(errnum: Int): String = libc.strerror(errnum)
+    def close(fd: Int): Int = libc.close(fd)
   }
-
-  lazy val libc = LibraryLoader
-    .create(classOf[jnrLibCInterface])
-    .load(Platform.getNativePlatform().getStandardCLibraryName())
 }
