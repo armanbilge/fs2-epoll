@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-// This file is ported from https://github.com/typelevel/cats-effect/blob/fdb2a3e468a67c51a513aec758fed11caa44a405/core/native/src/main/scala/cats/effect/FileDescriptorPoller.scala
 package cats.effect
 
 import cats.syntax.all._
