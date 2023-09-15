@@ -17,10 +17,11 @@
 package fs2.io.epoll
 
 import cats.effect.IOApp
+import cats.effect.unsafe.PollingSystem
 import fs2.io.epoll.unsafe.EpollSystem
 
 trait EpollApp extends IOApp {
-  override protected final def pollingSystem = EpollSystem
+  override protected final def pollingSystem: PollingSystem = EpollSystem
 }
 
 object EpollApp {

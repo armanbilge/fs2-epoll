@@ -23,11 +23,19 @@ import cats.syntax.all._
 import cats.effect.unsafe.PollingSystem
 
 import java.io.IOException
-import java.util.{Collections, IdentityHashMap, Set}
+
+import jnr.ffi.Memory;
+import jnr.constants.platform.Errno;
+
+import scala.collection.mutable.HashMap
+import scala.annotation.tailrec
 
 object EpollSystem extends PollingSystem {
+
   import epoll._
   import libc.jnr._
+
+  private[this] final val MaxEvents = 64
 
   type Api = FileDescriptorPoller
 
@@ -81,6 +89,23 @@ object EpollSystem extends PollingSystem {
 
     private[this] var writeReadyCounter = 0
     private[this] var writeCallback: Either[Throwable, Int] => Unit = null
+
+    def notify(events: Int): Unit = {
+      if ((events & EPOLLIN) != 0) {
+        val counter = readReadyCounter + 1
+        readReadyCounter = counter
+        val cb = readCallback
+        readCallback = null
+        if (cb ne null) cb(Right(counter))
+      }
+      if ((events & EPOLLOUT) != 0) {
+        val counter = writeReadyCounter + 1
+        writeReadyCounter = counter
+        val cb = writeCallback
+        writeCallback = null
+        if (cb ne null) cb(Right(counter))
+      }
+    }
 
     def pollReadRec[A, B](a: A)(f: A => IO[Either[A, B]]): IO[B] =
       readMutex.lock.surround {
@@ -141,16 +166,53 @@ object EpollSystem extends PollingSystem {
 
   final class Poller private[EpollSystem] (epfd: Int) {
 
-    private[this] val handles: Set[PollHandle] =
-      Collections.newSetFromMap(new IdentityHashMap)
-
+    private[this] val handles: HashMap[Long, PollHandle] = HashMap()
     private[EpollSystem] def close(): Unit =
       if (libc.jnr.close(epfd) != 0)
         throw new IOException(strerror(errno()))
 
-    private[EpollSystem] def poll(timeout: Long): Boolean = ???
+    private[EpollSystem] def poll(timeout: Long): Boolean = {
 
-    private[EpollSystem] def needsPoll(): Boolean = !handles.isEmpty()
+      val events = Memory.allocate(globalRuntime, EpollEvent.CStructSize * MaxEvents)
+      var polled = false
+
+      @tailrec
+      def processEvents(timeout: Int): Unit = {
+
+        val triggeredEvents = epoll_wait(epfd, events, MaxEvents, timeout)
+
+        if (triggeredEvents >= 0) {
+          polled = true
+
+          var i = 0
+          while (i < triggeredEvents) {
+            val epollEvent =
+              EpollEvent.apply(events, (i * EpollEvent.CStructSize).toLong, globalRuntime)
+            val handle = handles.get(epollEvent.data)
+
+            handle
+              .getOrElse(throw new IllegalStateException("Requested fd is not found"))
+              .notify(epollEvent.events.toInt)
+
+            i += 1
+          }
+        } else if (errno() != Errno.EINTR.intValue()) { // spurious wake-up by signal
+          throw new IOException(strerror(errno()))
+        }
+
+        if (triggeredEvents >= MaxEvents)
+          processEvents(0) // drain the ready list
+        else
+          ()
+      }
+
+      val timeoutMillis = if (timeout == -1) -1 else (timeout / 1000000).toInt
+      processEvents(timeoutMillis)
+
+      polled
+    }
+
+    private[EpollSystem] def needsPoll(): Boolean = !handles.isEmpty
 
     private[EpollSystem] def register(
         fd: Int,
@@ -158,7 +220,26 @@ object EpollSystem extends PollingSystem {
         writes: Boolean,
         handle: PollHandle,
         cb: Either[Throwable, (PollHandle, IO[Unit])] => Unit
-    ): Unit = ???
+    ): Unit = {
+      val events = (EPOLLET | (if (reads) EPOLLIN else 0) | (if (writes) EPOLLOUT else 0)).toInt
+      val data = (System.identityHashCode(handle).toLong << 32) | fd
+      val event = EpollEvent(events, data, globalRuntime)
+
+      val result =
+        if (epoll_ctl(epfd, EPOLL_CTL_ADD, fd, event) != 0)
+          Left(new IOException(strerror(errno())))
+        else {
+          handles.put(data, handle)
+          val remove = IO {
+            handles.remove(data)
+            if (epoll_ctl(epfd, EPOLL_CTL_DEL, fd, null) != 0)
+              throw new IOException(strerror(errno()))
+          }
+          Right((handle, remove))
+        }
+
+      cb(result)
+    }
   }
 
   private object epoll {
