@@ -6,7 +6,7 @@ ThisBuild / developers += tlGitHubDev("armanbilge", "Arman Bilge")
 ThisBuild / startYear := Some(2023)
 ThisBuild / tlSonatypeUseLegacyHost := false
 
-val scala213 = "2.13.11"
+val scala213 = "2.13.12"
 ThisBuild / crossScalaVersions := Seq("2.12.18", scala213, "3.3.1")
 ThisBuild / scalaVersion := scala213
 
@@ -23,8 +23,8 @@ ThisBuild / githubWorkflowPublishPreamble +=
   )
 
 val ceVersion = "3.6-e9aeb8c"
-val fs2Version = "3.9.1"
-val jnrFfiVersion = "2.2.14"
+val fs2Version = "3.9.2"
+val jnrFfiVersion = "2.2.15"
 val jnrConstatsVersion = "0.10.4"
 val munitCEVersion = "2.0.0-M3"
 
