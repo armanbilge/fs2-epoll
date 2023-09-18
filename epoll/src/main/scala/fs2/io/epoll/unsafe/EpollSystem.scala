@@ -190,9 +190,10 @@ object EpollSystem extends PollingSystem {
               EpollEvent.apply(events, (i * EpollEvent.CStructSize).toLong, globalRuntime)
             val handle = handles.get(epollEvent.data)
 
-            if (handle == null) {
-              throw new IllegalStateException("Requested fd is not found")
-            } else
+            // While polling, another worker thread may execute the PollHandle finalizer
+            // due to cancellation, and the target PollHandle may not exist in the `handles`.
+            // We execute `notify` method only if an entry exists in the HashMap.
+            if (handle ne null)
               handle.notify(epollEvent.events.toInt)
 
             i += 1
