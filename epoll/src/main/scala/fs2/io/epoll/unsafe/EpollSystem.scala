@@ -84,11 +84,11 @@ object EpollSystem extends PollingSystem {
       readMutex: Mutex[IO],
       writeMutex: Mutex[IO]
   ) extends FileDescriptorPollHandle {
-    private[this] var readReadyCounter = 0
-    private[this] var readCallback: Either[Throwable, Int] => Unit = null
+    @volatile private[this] var readReadyCounter = 0
+    @volatile private[this] var readCallback: Either[Throwable, Int] => Unit = null
 
-    private[this] var writeReadyCounter = 0
-    private[this] var writeCallback: Either[Throwable, Int] => Unit = null
+    @volatile private[this] var writeReadyCounter = 0
+    @volatile private[this] var writeCallback: Either[Throwable, Int] => Unit = null
 
     def notify(events: Int): Unit = {
       if ((events & EPOLLIN) != 0) {
