@@ -223,7 +223,7 @@ object EpollSystem extends PollingSystem {
         cb: Either[Throwable, (PollHandle, IO[Unit])] => Unit
     ): Unit = {
       val events = (EPOLLET | (if (reads) EPOLLIN else 0) | (if (writes) EPOLLOUT else 0)).toInt
-      val data = (System.identityHashCode(handle).toLong << 32) | fd
+      val data = fd.toLong
       val event = EpollEvent(events, data, globalRuntime)
 
       val result =
