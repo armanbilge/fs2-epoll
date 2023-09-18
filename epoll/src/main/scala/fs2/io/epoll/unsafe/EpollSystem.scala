@@ -17,10 +17,12 @@
 package fs2.io.epoll
 package unsafe
 
-import cats.effect.{IO, Resource, FileDescriptorPoller, FileDescriptorPollHandle}
+import cats.effect.{IO, Resource}
 import cats.effect.std.Mutex
 import cats.syntax.all._
 import cats.effect.unsafe.PollingSystem
+
+import fs2.io.epoll.{FileDescriptorPoller, FileDescriptorPollHandle}
 
 import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap

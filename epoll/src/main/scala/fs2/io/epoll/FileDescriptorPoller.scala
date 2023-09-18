@@ -14,8 +14,9 @@
  * limitations under the License.
  */
 
-package cats.effect
+package fs2.io.epoll
 
+import cats.effect.{Resource, IO}
 import cats.syntax.all._
 
 trait FileDescriptorPoller {
