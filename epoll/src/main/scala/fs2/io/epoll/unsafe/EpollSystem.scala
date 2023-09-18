@@ -23,11 +23,11 @@ import cats.syntax.all._
 import cats.effect.unsafe.PollingSystem
 
 import java.io.IOException
+import java.util.concurrent.ConcurrentHashMap
 
 import jnr.ffi.Memory;
 import jnr.constants.platform.Errno;
 
-import scala.collection.mutable.HashMap
 import scala.annotation.tailrec
 
 object EpollSystem extends PollingSystem {
@@ -166,7 +166,7 @@ object EpollSystem extends PollingSystem {
 
   final class Poller private[EpollSystem] (epfd: Int) {
 
-    private[this] val handles: HashMap[Long, PollHandle] = HashMap()
+    private[this] val handles: ConcurrentHashMap[Long, PollHandle] = new ConcurrentHashMap()
     private[EpollSystem] def close(): Unit =
       if (libc.jnr.close(epfd) != 0)
         throw new IOException(strerror(errno()))
@@ -190,9 +190,10 @@ object EpollSystem extends PollingSystem {
               EpollEvent.apply(events, (i * EpollEvent.CStructSize).toLong, globalRuntime)
             val handle = handles.get(epollEvent.data)
 
-            handle
-              .getOrElse(throw new IllegalStateException("Requested fd is not found"))
-              .notify(epollEvent.events.toInt)
+            if (handle == null) {
+              throw new IllegalStateException("Requested fd is not found")
+            } else
+              handle.notify(epollEvent.events.toInt)
 
             i += 1
           }
