@@ -91,6 +91,8 @@ private[epoll] object libc {
       def errno(): Int
       def strerror(errnum: Int): String
       def close(fd: Int): Int
+      def eventfd(initval: Int, flags: Int): Int
+      def write(fd: Int, buf: Pointer, count: Long): Long
     }
 
     def epoll_create1(flags: Int): Int = libc.epoll_create1(flags)
@@ -101,5 +103,7 @@ private[epoll] object libc {
     def errno(): Int = LastError.getLastError(globalRuntime)
     def strerror(errnum: Int): String = libc.strerror(errnum)
     def close(fd: Int): Int = libc.close(fd)
+    def eventfd(initval: Int, flags: Int): Int = libc.eventfd(initval, flags)
+    def write(fd: Int, buf: Pointer, count: Long): Long = libc.write(fd, buf, count)
   }
 }

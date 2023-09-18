@@ -22,8 +22,6 @@ import cats.effect.std.Mutex
 import cats.syntax.all._
 import cats.effect.unsafe.PollingSystem
 
-import fs2.io.epoll.{FileDescriptorPoller, FileDescriptorPollHandle}
-
 import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 
@@ -35,6 +33,7 @@ import scala.annotation.tailrec
 object EpollSystem extends PollingSystem {
 
   import epoll._
+  import eventfd._
   import libc.jnr._
 
   private[this] final val MaxEvents = 64
@@ -47,10 +46,15 @@ object EpollSystem extends PollingSystem {
     new FileDescriptorPollerImpl(register)
 
   def makePoller(): Poller = {
-    val fd = epoll_create1(0)
-    if (fd == -1)
+    val epfd = epoll_create1(0)
+    if (epfd == -1)
       throw new IOException(strerror(errno()))
-    new Poller(fd)
+
+    val evfd = libc.jnr.eventfd(0, EFD_SEMAPHORE | EFD_NONBLOCK)
+    if (evfd == -1)
+      throw new IOException(strerror(errno()))
+
+    new Poller(epfd, evfd)
   }
 
   def closePoller(poller: Poller): Unit = poller.close()
@@ -60,7 +64,8 @@ object EpollSystem extends PollingSystem {
 
   def needsPoll(poller: Poller): Boolean = poller.needsPoll()
 
-  def interrupt(targetThread: Thread, targetPoller: Poller): Unit = ()
+  def interrupt(targetThread: Thread, targetPoller: Poller): Unit =
+    targetPoller.interrupt()
 
   private final class FileDescriptorPollerImpl private[EpollSystem] (
       register: (Poller => Unit) => Unit
@@ -166,9 +171,18 @@ object EpollSystem extends PollingSystem {
       }
   }
 
-  final class Poller private[EpollSystem] (epfd: Int) {
+  final class Poller private[EpollSystem] (epfd: Int, evfd: Int) {
+
+    private final val incrementBuf = {
+      val bytes = Array.apply[Byte](0, 0, 0, 0, 0, 0, 0, 1)
+      val buf = Memory
+        .allocate(globalRuntime, 8)
+      buf.put(0, bytes, 0, 8)
+      buf
+    }
 
     private[this] val handles: ConcurrentHashMap[Long, PollHandle] = new ConcurrentHashMap()
+
     private[EpollSystem] def close(): Unit =
       if (libc.jnr.close(epfd) != 0)
         throw new IOException(strerror(errno()))
@@ -190,6 +204,13 @@ object EpollSystem extends PollingSystem {
           while (i < triggeredEvents) {
             val epollEvent =
               EpollEvent.apply(events, (i * EpollEvent.CStructSize).toLong, globalRuntime)
+
+            if (triggeredEvents == 1 && epollEvent.data == evfd) {
+              // couldn't poll anything, we just received an interruption.
+              polled = false
+              return
+            }
+
             val handle = handles.get(epollEvent.data)
 
             // While polling, another worker thread may execute the PollHandle finalizer
@@ -244,6 +265,11 @@ object EpollSystem extends PollingSystem {
 
       cb(result)
     }
+
+    private[EpollSystem] def interrupt(): Unit =
+      if (write(evfd, incrementBuf, 8) < 0)
+        throw new IOException(strerror(errno()))
+
   }
 
   private object epoll {
@@ -255,5 +281,10 @@ object EpollSystem extends PollingSystem {
     final val EPOLLOUT = 0x004
     final val EPOLLONESHOT = 1 << 30
     final val EPOLLET = 1 << 31
+  }
+
+  private object eventfd {
+    final val EFD_SEMAPHORE = 1
+    final val EFD_NONBLOCK = 2048
   }
 }
