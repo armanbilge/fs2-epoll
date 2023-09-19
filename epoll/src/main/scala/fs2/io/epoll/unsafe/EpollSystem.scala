@@ -50,7 +50,7 @@ object EpollSystem extends PollingSystem {
     if (epfd == -1)
       throw new IOException(strerror(errno()))
 
-    val evfd = libc.jnr.eventfd(0, EFD_SEMAPHORE | EFD_NONBLOCK)
+    val evfd = libc.jnr.eventfd(0, EFD_NONBLOCK)
     if (evfd == -1)
       throw new IOException(strerror(errno()))
 
