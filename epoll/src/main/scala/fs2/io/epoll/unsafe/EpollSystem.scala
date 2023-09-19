@@ -26,7 +26,6 @@ import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 
 import jnr.ffi.Memory;
-import jnr.constants.platform.Errno;
 
 import scala.annotation.tailrec
 

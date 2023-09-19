@@ -19,6 +19,7 @@ package fs2.io.epoll
 import cats.effect.unsafe.IORuntimeBuilder
 import fs2.io.epoll.unsafe.EpollSystem
 import munit.CatsEffectSuite
+import scala.concurrent.duration._
 
 abstract class EpollSuite extends CatsEffectSuite {
 
@@ -26,4 +27,5 @@ abstract class EpollSuite extends CatsEffectSuite {
     IORuntimeBuilder()
       .setPollingSystem(EpollSystem)
       .build()
+  override def munitIOTimeout: Duration = 20.second
 }

@@ -17,9 +17,9 @@
 package fs2.io.epoll
 
 import cats.effect.IO
-import munit.CatsEffectSuite
 
-class EpollSystemSuite extends CatsEffectSuite {
+class EpollSystemSuite extends EpollSuite {
+
   test("sample suite") {
     IO(42).assertEquals(42)
   }
