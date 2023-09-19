@@ -206,26 +206,21 @@ object EpollSystem extends PollingSystem {
         val triggeredEvents = epoll_wait(epfd, events, MaxEvents, timeout)
 
         if (triggeredEvents >= 0) {
-          polled = true
 
           var i = 0
           while (i < triggeredEvents) {
             val epollEvent =
               EpollEvent.apply(events, (i * EpollEvent.CStructSize).toLong, globalRuntime)
 
-            if (triggeredEvents == 1 && epollEvent.data == evfd) {
-              // couldn't poll anything, we just received an interruption.
-              polled = false
-              return
-            }
-
-            val handle = handles.get(epollEvent.data)
+            val handle = if (epollEvent.data != evfd) handles.get(epollEvent.data) else null
 
             // While polling, another worker thread may execute the PollHandle finalizer
             // due to cancellation, and the target PollHandle may not exist in the `handles`.
             // We execute `notify` method only if an entry exists in the HashMap.
-            if (handle ne null)
+            if (handle ne null) {
               handle.notify(epollEvent.events.toInt)
+              polled = true
+            }
 
             i += 1
           }
