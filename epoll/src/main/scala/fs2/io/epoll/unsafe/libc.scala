@@ -56,7 +56,7 @@ private[epoll] object libc {
       }
 
       def apply(ptr: Pointer, offset: Long, runtime: Runtime): EpollEvent = {
-        val dest = Array.emptyByteArray
+        val dest = new Array[Int](CStructSize)
         ptr.get(
           offset,
           dest,
