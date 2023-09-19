@@ -54,6 +54,15 @@ object EpollSystem extends PollingSystem {
     if (evfd == -1)
       throw new IOException(strerror(errno()))
 
+    val event = EpollEvent(
+      EPOLLIN | EPOLLOUT,
+      evfd.toLong,
+      globalRuntime
+    )
+
+    if (epoll_ctl(epfd, EPOLL_CTL_ADD, evfd, event) != 0)
+      throw new IOException(strerror(errno()))
+
     new Poller(epfd, evfd)
   }
 
@@ -221,8 +230,6 @@ object EpollSystem extends PollingSystem {
 
             i += 1
           }
-        } else if (errno() != Errno.EINTR.intValue()) { // spurious wake-up by signal
-          throw new IOException(strerror(errno()))
         }
 
         if (triggeredEvents >= MaxEvents)
