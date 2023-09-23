@@ -32,7 +32,6 @@ import scala.annotation.tailrec
 object EpollSystem extends PollingSystem {
 
   import epoll._
-  import eventfd._
   import libc.jnr._
 
   private[this] final val MaxEvents = 64
@@ -49,13 +48,13 @@ object EpollSystem extends PollingSystem {
     if (epfd == -1)
       throw new IOException(strerror(errno()))
 
-    val evfd = libc.jnr.eventfd(0, EFD_NONBLOCK)
+    val evfd = libc.jnr.eventfd(0, 0)
     if (evfd == -1)
       throw new IOException(strerror(errno()))
 
     val event = EpollEvent(
       EPOLLIN | EPOLLOUT,
-      evfd.toLong,
+      evfd,
       globalRuntime
     )
 
@@ -181,7 +180,8 @@ object EpollSystem extends PollingSystem {
 
   final class Poller private[EpollSystem] (epfd: Int, evfd: Int) {
 
-    private final val incrementBuf = {
+    private final lazy val readBuf = Memory.allocate(globalRuntime, 8)
+    private final lazy val writeBuf = {
       val bytes = Array.apply[Byte](0, 0, 0, 0, 0, 0, 0, 1)
       val buf = Memory
         .allocate(globalRuntime, 8)
@@ -189,7 +189,7 @@ object EpollSystem extends PollingSystem {
       buf
     }
 
-    private[this] val handles: ConcurrentHashMap[Long, PollHandle] = new ConcurrentHashMap()
+    private[this] val handles: ConcurrentHashMap[Int, PollHandle] = new ConcurrentHashMap()
 
     private[EpollSystem] def close(): Unit =
       if (libc.jnr.close(epfd) != 0)
@@ -212,13 +212,23 @@ object EpollSystem extends PollingSystem {
             val epollEvent =
               EpollEvent.apply(events, (i * EpollEvent.CStructSize).toLong, globalRuntime)
 
-            val handle = if (epollEvent.data != evfd) handles.get(epollEvent.data) else null
+            val handle = if (epollEvent.fd() != evfd) {
+              // We poll something.
+              handles.get(epollEvent.fd())
+            } else {
+              // We received an interruption.
+              // Initialize the eventfd counter to 0.
+              if (read(evfd, readBuf, 8) == -1)
+                throw new IOException(strerror(errno()))
+
+              null
+            }
 
             // While polling, another worker thread may execute the PollHandle finalizer
             // due to cancellation, and the target PollHandle may not exist in the `handles`.
             // We execute `notify` method only if an entry exists in the HashMap.
             if (handle ne null) {
-              handle.notify(epollEvent.events.toInt)
+              handle.notify(epollEvent.events())
               polled = true
             }
 
@@ -248,7 +258,7 @@ object EpollSystem extends PollingSystem {
         cb: Either[Throwable, (PollHandle, IO[Unit])] => Unit
     ): Unit = {
       val events = (EPOLLET | (if (reads) EPOLLIN else 0) | (if (writes) EPOLLOUT else 0)).toInt
-      val data = fd.toLong
+      val data = fd
       val event = EpollEvent(events, data, globalRuntime)
 
       val result =
@@ -268,7 +278,7 @@ object EpollSystem extends PollingSystem {
     }
 
     private[EpollSystem] def interrupt(): Unit =
-      if (write(evfd, incrementBuf, 8) < 0)
+      if (write(evfd, writeBuf, 8) < 0)
         throw new IOException(strerror(errno()))
 
   }
@@ -284,8 +294,4 @@ object EpollSystem extends PollingSystem {
     final val EPOLLET = 1 << 31
   }
 
-  private object eventfd {
-    final val EFD_SEMAPHORE = 1
-    final val EFD_NONBLOCK = 2048
-  }
 }

@@ -17,7 +17,7 @@
 package fs2.io.epoll
 package unsafe
 
-import jnr.ffi.{LibraryLoader, Platform, Pointer, Struct, Runtime, LastError}
+import jnr.ffi.{LibraryLoader, Platform, Pointer, Struct, Runtime, LastError, Memory, Union}
 
 private[epoll] object libc {
 
@@ -28,35 +28,35 @@ private[epoll] object libc {
       .create(classOf[jnrLibcFFIInterface])
       .load(Platform.getNativePlatform().getStandardCLibraryName())
 
-    /*
-     *  epoll_event layout
-     *
-     *  +---------------------+---------------------+---------------------+
-     *  |       events        |       padding       |       data          |
-     *  |       32bit         |       32bit         |       64bit         |
-     *  +---------------------+---------------------+---------------------+
-     *  Total size: 16 bytes
-     */
+    final class EpollData(runtime: Runtime) extends Union(runtime) {
+      final val ptr: PointerField = new Pointer()
+      final val fd: Signed32 = new Signed32()
+      final val u32: Unsigned32 = new Unsigned32()
+      final val u64: Unsigned64 = new Unsigned64()
+    }
+
     final class EpollEvent(runtime: Runtime) extends Struct(runtime) {
       final private val _events: Unsigned32 = new Unsigned32()
-      final private val _data: Unsigned64 = new Unsigned64()
+      final private val _data: EpollData = inner(new EpollData(runtime))
 
-      final val events: Int = _events.get().toInt
-      final val data: Long = _data.get()
+      @inline
+      final def events(): Int = _events.get().toInt
+      @inline
+      final def fd(): Int = _data.fd.get().toInt
     }
 
     object EpollEvent {
-      final val CStructSize: Int = 16
+      final val CStructSize: Int = 12
 
-      def apply(events: Int, data: Long, runtime: Runtime): EpollEvent = {
+      def apply(events: Int, data: Int, runtime: Runtime): EpollEvent = {
         val ev = new EpollEvent(runtime)
         ev._events.set(events.toLong)
-        ev._data.set(data)
+        ev._data.fd.set(data)
         ev
       }
 
       def apply(ptr: Pointer, offset: Long, runtime: Runtime): EpollEvent = {
-        val dest = new Array[Int](CStructSize)
+        val dest = new Array[Byte](CStructSize)
         ptr.get(
           offset,
           dest,
@@ -64,21 +64,23 @@ private[epoll] object libc {
           CStructSize
         )
 
-        val (eventField, dataField) = dest.splitAt(EpollEvent.CStructSize / 2)
         val event =
-          eventField
+          dest
             .take(4)
-            .foldLeft(0L)((acc, b) => (acc << 8) | (b & 0xff))
+            .reverse
+            .foldLeft(0)((acc, b) => (acc << 8) | (b & 0xff))
 
         val data =
-          dataField
-            .take(8)
+          dest
+            .drop(8)
+            .take(4)
+            .reverse
             .foldLeft(0L)((acc, b) => (acc << 8) | (b & 0xff))
 
         val epollEvent = new EpollEvent(runtime)
 
-        epollEvent._data.set(data)
-        epollEvent._events.set(event)
+        epollEvent._data.fd.set(data.toInt)
+        epollEvent._events.set(event.toLong)
 
         epollEvent
       }
@@ -93,6 +95,9 @@ private[epoll] object libc {
       def close(fd: Int): Int
       def eventfd(initval: Int, flags: Int): Int
       def write(fd: Int, buf: Pointer, count: Long): Long
+      def read(fd: Int, buf: Pointer, count: Long): Long
+      def pipe(pipefd: Array[Int]): Int
+      def fcntl(fd: Int, cmd: Int): Int
     }
 
     def epoll_create1(flags: Int): Int = libc.epoll_create1(flags)
@@ -105,5 +110,14 @@ private[epoll] object libc {
     def close(fd: Int): Int = libc.close(fd)
     def eventfd(initval: Int, flags: Int): Int = libc.eventfd(initval, flags)
     def write(fd: Int, buf: Pointer, count: Long): Long = libc.write(fd, buf, count)
+    def read(fd: Int, buf: Pointer, count: Long): Long = libc.read(fd, buf, count)
+    def pipe(pipefd: Array[Int]): Int = libc.pipe(pipefd)
+    def fcntl(fd: Int, cmd: Int): Int = libc.fcntl(fd, cmd)
+
+    def byteToPtr(bytes: Array[Byte]): Pointer = {
+      val buf = Memory.allocateDirect(globalRuntime, bytes.length)
+      buf.put(0, bytes, 0, bytes.length)
+      buf
+    }
   }
 }
