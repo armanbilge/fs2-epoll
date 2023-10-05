@@ -104,6 +104,7 @@ object EpollSystem extends PollingSystem {
     @volatile private[this] var writeReadyCounter = 0
     @volatile private[this] var writeCallback: Either[Throwable, Int] => Unit = null
 
+    // update counter and calls the pending callback if it exists.
     def notify(events: Int): Unit = {
       if ((events & EPOLLIN) != 0) {
         val counter = readReadyCounter + 1
@@ -124,8 +125,10 @@ object EpollSystem extends PollingSystem {
     def pollReadRec[A, B](a: A)(f: A => IO[Either[A, B]]): IO[B] =
       readMutex.lock.surround {
         def go(a: A, before: Int): IO[B] =
+          // invoke `f`
           f(a).flatMap {
             case Left(a) =>
+              // `f` fails because the file descriptor is blocked
               IO(readReadyCounter).flatMap { after =>
                 if (before != after)
                   // there was a read-ready notification since we started, try again immediately
@@ -139,7 +142,10 @@ object EpollSystem extends PollingSystem {
                       if (now != before) {
                         readCallback = null
                         Right(now)
-                      } else Left(Some(IO(this.readCallback = null)))
+                      } else {
+                        // block here until `readCallback` is invoked
+                        Left(Some(IO(this.readCallback = null)))
+                      }
                     }
                   }.flatMap(go(a, _))
               }
@@ -180,14 +186,11 @@ object EpollSystem extends PollingSystem {
 
   final class Poller private[EpollSystem] (epfd: Int, evfd: Int) {
 
+    // fixed array used only when reading from eventfd
     private final lazy val readBuf = Memory.allocate(globalRuntime, 8)
-    private final lazy val writeBuf = {
-      val bytes = Array.apply[Byte](0, 0, 0, 0, 0, 0, 0, 1)
-      val buf = Memory
-        .allocate(globalRuntime, 8)
-      buf.put(0, bytes, 0, 8)
-      buf
-    }
+
+    // fixed array used only when writing to eventfd
+    private final lazy val writeBuf = byteToPtr(Array.apply[Byte](0, 0, 0, 0, 0, 0, 0, 1))
 
     private[this] val handles: ConcurrentHashMap[Int, PollHandle] = new ConcurrentHashMap()
 

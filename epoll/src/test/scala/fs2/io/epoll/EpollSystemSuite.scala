@@ -26,7 +26,7 @@ import fs2.io.epoll.unsafe.libc
 import java.io.IOException
 
 import jnr.constants.platform.{Errno, Fcntl}
-import jnr.ffi.Memory
+import jnr.ffi.{Memory, Pointer}
 
 class EpollSystemSuite extends EpollSuite {
 
@@ -36,19 +36,20 @@ class EpollSystemSuite extends EpollSuite {
       val readHandle: FileDescriptorPollHandle,
       val writeHandle: FileDescriptorPollHandle
   ) {
-    def read(buf: Array[Byte], offset: Int, length: Int): IO[Unit] = {
-      val ptr = Memory.allocate(globalRuntime, length)
-      readHandle
-        .pollReadRec(()) { _ =>
-          IO(guard(libc.jnr.read(readFd, ptr, length.toLong).toInt)) <* IO {
-            (0 until length).foreach { i =>
-              buf(offset + i) = ptr.getByte(i.toLong)
-            }
-          }
 
-        }
-        .void
-    }
+    def read(buf: Array[Byte], offset: Int, length: Int): IO[Unit] =
+      allocateMemory(length).flatMap { ptr =>
+        readHandle
+          .pollReadRec(()) { _ =>
+            IO(guard(libc.jnr.read(readFd, ptr, length.toLong).toInt)) <* ptrToBuf(
+              buf,
+              ptr,
+              length,
+              offset
+            )
+          }
+          .void
+      }
 
     def write(buf: Array[Byte], length: Int): IO[Unit] =
       writeHandle
@@ -68,6 +69,15 @@ class EpollSystemSuite extends EpollSuite {
       } else
         Right(rtn)
     }
+
+    private def ptrToBuf(buf: Array[Byte], ptr: Pointer, length: Int, offset: Int): IO[Unit] =
+      IO {
+        (0 until length).foreach { i =>
+          buf(offset + i) = ptr.getByte(i.toLong)
+        }
+      }
+
+    private def allocateMemory(size: Int): IO[Pointer] = IO(Memory.allocate(globalRuntime, size))
   }
 
   def getPoller(): IO[Poller] =
@@ -130,5 +140,14 @@ class EpollSystemSuite extends EpollSuite {
     }
   }
 
-  // TODO: interruption test
+  test("doing read/write many times") {
+    val n = 100
+    mkPipe.use { pipe =>
+      (for {
+        buf <- IO(new Array[Byte](n))
+        _ <- pipe.write(Array[Byte](1), 1).replicateA(n)
+        _ <- (0 until n).toList.traverse(i => pipe.read(buf, i, 1))
+      } yield buf.toList).assertEquals(List.fill[Byte](n)(1))
+    }
+  }
 }
