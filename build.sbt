@@ -7,7 +7,7 @@ ThisBuild / startYear := Some(2023)
 ThisBuild / tlSonatypeUseLegacyHost := false
 
 val scala213 = "2.13.12"
-ThisBuild / crossScalaVersions := Seq("2.12.18", scala213, "3.3.1")
+ThisBuild / crossScalaVersions := Seq("2.12.18", scala213, "3.4.0")
 ThisBuild / scalaVersion := scala213
 
 ThisBuild / githubWorkflowJavaVersions := Seq(
