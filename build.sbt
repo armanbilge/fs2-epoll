@@ -24,7 +24,7 @@ ThisBuild / githubWorkflowPublishPreamble +=
 
 val ceVersion = "3.6-e9aeb8c"
 val fs2Version = "3.9.3"
-val jnrFfiVersion = "2.2.15"
+val jnrFfiVersion = "2.2.16"
 val munitCEVersion = "2.0.0-M4"
 
 lazy val root = project.in(file(".")).aggregate(epoll).enablePlugins(NoPublishPlugin)
