@@ -6,7 +6,7 @@ ThisBuild / developers += tlGitHubDev("armanbilge", "Arman Bilge")
 ThisBuild / startYear := Some(2023)
 ThisBuild / tlSonatypeUseLegacyHost := false
 
-val scala213 = "2.13.12"
+val scala213 = "2.13.13"
 ThisBuild / crossScalaVersions := Seq("2.12.18", scala213, "3.3.1")
 ThisBuild / scalaVersion := scala213
 
